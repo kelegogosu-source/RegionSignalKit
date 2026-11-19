@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
   s.name = 'RegionSignalKit'
-  s.version = '0.2.0'
-  s.summary = 'Offline device setting and network interface checks for iOS.'
-  s.description = 'Evaluates local device settings and tunnel interface indicators without network requests, reporting unknown when checks cannot be verified.'
+  s.version = '0.3.0'
+  s.summary = 'Device setting and optional IP country checks for iOS.'
+  s.description = 'Evaluates device settings and optional IP country lookup, reporting unknown when checks cannot be verified.'
   s.homepage = 'https://github.com/kelegogosu-source/RegionSignalKit'
   s.license = { :type => 'MIT', :file => 'LICENSE' }
   s.author = { 'kelegogosu-source' => 'kelegogosu-source@users.noreply.github.com' }

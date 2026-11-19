@@ -40,11 +40,13 @@ public struct Policy {
 public struct Observations {
     public var region: String?
     public var language: String?
+    public var ipCountryCode: String?
     /// A tunnel-like interface is only a heuristic, and may not be a VPN.
     public var tunnelInterfaceDetected: Bool
-    public init(region: String?, language: String?, tunnelInterfaceDetected: Bool = false) {
+    public init(region: String?, language: String?, ipCountryCode: String? = nil, tunnelInterfaceDetected: Bool = false) {
         self.region = region
         self.language = language
+        self.ipCountryCode = ipCountryCode
         self.tunnelInterfaceDetected = tunnelInterfaceDetected
     }
 }
@@ -59,12 +61,15 @@ public enum RegionSignalKit {
 
     public static func evaluate(_ observations: Observations, policy: Policy = Policy()) -> Report {
         let region = g1(observations.region)
+        let ipCountry = g1(observations.ipCountryCode)
         let language = observations.language?.trimmingCharacters(in: .whitespacesAndNewlines)
         var results: [CheckResult] = []
         func add(_ check: Check, _ state: CheckState, _ detail: String) {
             if policy.enabledChecks.contains(check) { results.append(CheckResult(check: check, state: state, detail: detail)) }
         }
-        add(.ipCountry, .unknown, "IP country is unavailable without an IP geolocation source")
+        if let ipCountry = ipCountry {
+            add(.ipCountry, ipCountry == RSKStrings.a ? .rejected : .passed, "IP country: \(ipCountry)")
+        } else { add(.ipCountry, .unknown, "IP country unavailable or invalid") }
         if let region = region {
             add(.deviceRegion, region == RSKStrings.a ? .rejected : .passed, "Device region: \(region)")
         } else { add(.deviceRegion, .unknown, "Device region unavailable or invalid") }
@@ -74,7 +79,9 @@ public enum RegionSignalKit {
                 add(.deviceLanguage, code == RSKStrings.b ? .rejected : .passed, "Preferred language: \(language)")
             } else { add(.deviceLanguage, .unknown, "Preferred language unavailable or invalid") }
         } else { add(.deviceLanguage, .unknown, "Preferred language unavailable") }
-        add(.regionMatchesIP, .unknown, "IP country is unavailable without an IP geolocation source")
+        if let region = region, let ipCountry = ipCountry {
+            add(.regionMatchesIP, region == ipCountry ? .passed : .rejected, "Device region \(region), IP country \(ipCountry)")
+        } else { add(.regionMatchesIP, .unknown, "Device region or IP country unavailable") }
         if observations.tunnelInterfaceDetected {
             add(.vpn, .rejected, "Tunnel-like network interface detected; this may not be a VPN")
         } else {
