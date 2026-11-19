@@ -62,7 +62,7 @@ client.check(policy: policy) { report in /* 使用 report.allowed */ }
 
 ## 测试和发布
 
-运行 `swift test`；运行 `pod lib lint RegionSignalKit.podspec --allow-warnings` 检查本地 pod。发布前修改 podspec 中 homepage、source、author 为实际值，检查 Pod 名称，推送公开仓库和 `0.1.0` 标签，再用 `pod spec lint` 检查远程来源并自行执行 `pod trunk push`。本项目未发布。
+运行 `swift test`；运行 `pod lib lint RegionSignalKit.podspec --allow-warnings` 检查本地 pod。发布前修改 podspec 中 homepage、source、author 为实际值，检查 Pod 名称，推送公开仓库和 `0.1.0` 标签，再用 `pod spec lint` 检查远程来源并自行执行 `pod trunk push`。发布成功后可按上面的方式接入。
 
 ## 命名与混淆
 
