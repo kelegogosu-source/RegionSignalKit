@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name = 'RegionSignalKit'
-  s.version = '0.3.0'
+  s.version = '0.4.0'
   s.summary = 'Device setting and optional IP country checks for iOS.'
   s.description = 'Evaluates device settings and optional IP country lookup, reporting unknown when checks cannot be verified.'
   s.homepage = 'https://github.com/kelegogosu-source/RegionSignalKit'

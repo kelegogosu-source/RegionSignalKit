@@ -69,11 +69,13 @@ final class RegionSignalKitTests: XCTestCase {
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
         for (json, status, expected) in [
-            ("{\"success\":true,\"country_code\":\"US\"}", 200, CheckState.rejected),
-            ("{\"success\":true,\"country_code\":\"CN\"}", 200, CheckState.passed),
-            ("{\"success\":false,\"country_code\":\"CN\"}", 200, CheckState.unknown),
-            ("{\"success\":true,\"country_code\":\"CN\"}", 429, CheckState.unknown),
-            ("bad json", 200, CheckState.unknown)
+            ("fl=123\nloc=US\n", 200, CheckState.rejected),
+            ("loc=CN\r\n", 200, CheckState.passed),
+            ("loc=XX\n", 200, CheckState.unknown),
+            ("loc=T1\n", 200, CheckState.unknown),
+            ("loc=CN\n", 429, CheckState.unknown),
+            ("loc=CN\nloc=US\n", 200, CheckState.unknown),
+            ("bad response", 200, CheckState.unknown)
         ] {
             IPStub.status = status
             IPStub.payload = Data(json.utf8)
