@@ -1,69 +1,75 @@
 # RegionSignalKit
 
-iOS 15+ / Swift 5 的 CocoaPods 检查库，返回每项检查的通过、拒绝或无法确认。它只给出判断结果，不会自动关闭页面或拦截请求；请由接入方根据 `report.allowed` 执行相应操作。
+iOS 15+ / Swift 5 本机检查库。0.2.0 版本无需接口地址，不会发起网络请求；可以检查设备地区、首选语言和本机隧道接口迹象。每项返回通过、拒绝或无法确认，由接入方根据结果决定是否拦截。
 
-## 本地接入
+## 安装
 
 ```ruby
-pod 'RegionSignalKit', :path => '../RegionSignalKit'
+platform :ios, '15.0'
+
+target '你的项目名称' do
+  use_frameworks!
+  pod 'RegionSignalKit', '~> 0.2.0'
+end
 ```
 
-发布到 CocoaPods 后可改成 `pod 'RegionSignalKit', '~> 0.1'`。也可使用仓库 URL 和 tag 安装；发布前需要替换 podspec 的仓库和作者信息。
+执行 `pod install` 并使用 `.xcworkspace` 打开项目。
+
+## 在手机上检查
 
 ```swift
+import UIKit
 import RegionSignalKit
 
-let client = try RegionSignalKitClient(endpoint: URL(string: "https://your-domain.example/access-signals")!)
-client.check { report in
-    for item in report.results {
-        print(item.check.rawValue, item.state.rawValue, item.detail)
-    }
-    DispatchQueue.main.async {
-        if report.allowed {
-            // 允许继续
-        } else {
-            // 拒绝或提示用户
-        }
+final class ViewController: UIViewController {
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+
+        // deviceSettings 只启用设备地区、首选语言两项。
+        let report = RegionSignalKit.check(policy: .deviceSettings)
+        let details = report.results.map { item in
+            "\(item.check.rawValue): \(item.state.rawValue)\n\(item.detail)"
+        }.joined(separator: "\n\n")
+
+        let alert = UIAlertController(
+            title: report.allowed ? "检查通过" : "检查未通过",
+            message: details,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "确定", style: .default))
+        present(alert, animated: true)
     }
 }
 ```
 
-**默认策略的所有检查都启用，无法确认即拒绝。由于 iOS 无法通用可靠地判断是否有 SIM 以及是否为实体卡，默认策略始终拒绝。** 如果业务接受这一限制，可显式关闭这两项：
+`check` 是同步方法，不需要 URL、回调、网络或服务端。`passed` 为通过、`rejected` 为拒绝、`unknown` 为无法确认。
+
+## 检查项目与限制
+
+- `deviceRegion`：系统地区为美国（`US`）时拒绝。它是用户可修改的设置，并不是 GPS 位置。
+- `deviceLanguage`：首选语言为英语（`en`，包括 `en-US`、`en-GB`）时拒绝。只检查首选语言，不检查所有备选语言。
+- `vpn`：发现名称类似隧道的活动网络接口时拒绝；这种启发式可能误报或漏报。未发现时返回 `unknown`，不能证明没有使用 VPN。
+- `ipCountry`、`regionMatchesIP`：无离线 IP 归属数据，因此返回 `unknown`。库不会访问网站，也不会自动查询 IP 国家。
+- `simPresent`、`physicalSIM`：iOS 不提供通用可靠的公开接口来确认是否有卡或区分实体卡与 eSIM，因此返回 `unknown`。
+
+设备和网络判断不是可信的身份或安全证明，可能被用户修改或绕过。
+
+## 策略
+
+`Policy()` 默认启用所有检查，且未知时拒绝。由于 IP、SIM 等项无法本机确定，默认策略的 `report.allowed` 始终为 `false`。可使用 `.deviceSettings` 只启用地区和语言，或按需求自行设置：
 
 ```swift
-var policy = Policy()
-policy.enabledChecks.subtract([.simPresent, .physicalSIM])
-client.check(policy: policy) { report in /* 使用 report.allowed */ }
+var policy = Policy.deviceSettings
+policy.enabledChecks.insert(.vpn)
+let report = RegionSignalKit.check(policy: policy)
 ```
 
-也可以设置 `policy.unknownIsRejected = false` 允许无法确认的项通过，但这会影响所有启用的检查，包括 IP 和 VPN。明确拒绝的项仍会拒绝。
+以上例子中，如果发现隧道迹象会拒绝；没有发现也不能确定 VPN 状态，因此仍返回 `unknown` 并默认拒绝。设置 `policy.unknownIsRejected = false` 可允许未知项，但会影响所有启用的检查，**不表示这些检查已通过**。明确拒绝的项目仍会拒绝。
 
-## 规则与限制
+## 从 0.1.x 升级
 
-- IP 美国：服务端返回 ISO 3166-1 alpha-2 国家码 `US` 时拒绝。其他有效国家码通过，缺失或无效为无法确认。
-- 设备地区美国：按当前系统区域的国家码判断。不是 GPS 位置，用户可以修改。
-- 英语：按系统首选语言的主语言代码 `en` 判断，例如 `en-US`、`en-GB` 均拒绝。不是检查所有备选语言，也不是 App 的本地化语言。
-- 地区与 IP 国家不一致：两个国家码不同时拒绝。旅行、漫游、IP 库错误等可能造成误判。
-- VPN：服务端返回 `vpn: true` 或发现名称类似 VPN 隧道的活动接口时拒绝。接口启发式会误报，也可能漏报；`vpn: false` 仅表示服务商未判为 VPN，不能证明没有 VPN。其他代理和 iCloud Private Relay 等也未必能识别。
-- SIM：通用公开 API 无法可靠检测有无 SIM 或区分实体卡与 eSIM；两项均为无法确认。不要把支持 eSIM 或运营商信息当作实体卡证明。
-- 网络失败、非 2xx、响应格式错误、无效国家码或缺少字段：对应项为无法确认，默认拒绝。回调在 URLSession 队列上，更新 UI 时切换主线程。
+0.2.0 为纯本机版本，移除了 `RegionSignalKitClient`、`NetworkSignals` 和 HTTPS 接口支持，改用同步的 `RegionSignalKit.check(policy:)`。如果原先使用服务端判断 IP 国家或 VPN，升级后这些数据不会自动获取，需由应用自行决定如何处理；不可把未知当作已通过。
 
-## 服务端协议
+## 测试与混淆
 
-必须由接入方提供 HTTPS GET 接口，依据服务器实际看到的客户端出口 IP 查询国家和 VPN 风险，响应例如：
-
-```json
-{"country_code":"CN","vpn":false}
-```
-
-`country_code` 和 `vpn` 可为 `null` 或省略，分别表示未知。不要相信客户端提交的 IP。IP 地理位置数据库和 VPN 风险服务需要自行选择并维护；IPv4/IPv6、反向代理和 CDN 的真实客户端 IP 配置也由服务端负责。请求可能包含用户 IP 等个人数据，接入方应自行处理隐私告知和服务端保护。
-
-设备结果及最终授权应在可信服务端结合业务规则验证：客户端可被篡改，也无法保证地理位置、SIM 或 VPN 判断准确。`RegionSignalKit.evaluate` 可接收自定义 `Observations` 便于测试，但输入不构成可信证明。
-
-## 测试和发布
-
-运行 `swift test`；运行 `pod lib lint RegionSignalKit.podspec --allow-warnings` 检查本地 pod。发布前修改 podspec 中 homepage、source、author 为实际值，检查 Pod 名称，推送公开仓库和 `0.1.0` 标签，再用 `pod spec lint` 检查远程来源并自行执行 `pod trunk push`。发布成功后可按上面的方式接入。
-
-## 命名与混淆
-
-库、模块和公开入口已统一命名为 `RegionSignalKit`。内部对部分判断常量和隧道接口前缀做了可逆字节混淆，并简化部分私有符号名称。混淆只能降低静态查看时的可读性，不是加密，无法阻止反编译或篡改；公开 API、服务端字段、检查结果及说明仍可读。不要把密钥放在客户端，也不要依赖混淆作为服务端授权或安全保障。
+运行 `swift test`；运行 `pod lib lint RegionSignalKit.podspec --allow-warnings` 验证本地 Pod。部分内部常量和私有符号做了轻量可逆混淆，仅降低静态查看时的可读性，不是加密，不能阻止反编译或篡改。

@@ -1,6 +1,5 @@
 import Foundation
 
-/// A missing signal is deliberately distinct from a confirmed violation.
 public enum CheckState: String {
     case passed, rejected, unknown
 }
@@ -23,53 +22,49 @@ public struct Report {
     }
 }
 
-/// Values supplied by your own HTTPS endpoint. `vpn` should be the server's risk assessment
-/// of the address it actually received, not an address supplied by the client.
-public struct NetworkSignals: Decodable {
-    public let countryCode: String?
-    public let vpn: Bool?
-
-    public init(countryCode: String?, vpn: Bool?) {
-        self.countryCode = countryCode
-        self.vpn = vpn
-    }
-    enum CodingKeys: String, CodingKey { case countryCode = "country_code", vpn }
-}
-
 public struct Policy {
+    /// The strict default enables all checks and rejects unknown results.
     public var enabledChecks: Set<Check> = Set(Check.allCases)
     public var unknownIsRejected = true
     public init() {}
+
+    /// Only checks the device's region and first preferred language, without network access.
+    public static var deviceSettings: Policy {
+        var policy = Policy()
+        policy.enabledChecks = [.deviceRegion, .deviceLanguage]
+        return policy
+    }
 }
 
-/// The caller can inject test observations. Never treat client observations as authoritative
-/// proof of physical SIM, identity, location, or absence of a VPN.
+/// Injectable values for tests. They are not trusted proof of a device's location or network.
 public struct Observations {
     public var region: String?
     public var language: String?
-    public var network: NetworkSignals?
-    /// True means a tunnel-like interface was found; false does not prove VPN absence.
+    /// A tunnel-like interface is only a heuristic, and may not be a VPN.
     public var tunnelInterfaceDetected: Bool
-    public init(region: String?, language: String?, network: NetworkSignals?, tunnelInterfaceDetected: Bool = false) {
+    public init(region: String?, language: String?, tunnelInterfaceDetected: Bool = false) {
         self.region = region
         self.language = language
-        self.network = network
         self.tunnelInterfaceDetected = tunnelInterfaceDetected
     }
 }
 
 public enum RegionSignalKit {
+    /// Read device settings and local interface information. No network request is made.
+    public static func check(policy: Policy = Policy()) -> Report {
+        evaluate(Observations(region: Locale.current.regionCode,
+                              language: Locale.preferredLanguages.first,
+                              tunnelInterfaceDetected: RSKLocalNetwork.g2()), policy: policy)
+    }
+
     public static func evaluate(_ observations: Observations, policy: Policy = Policy()) -> Report {
         let region = g1(observations.region)
-        let ipCountry = g1(observations.network?.countryCode)
         let language = observations.language?.trimmingCharacters(in: .whitespacesAndNewlines)
         var results: [CheckResult] = []
         func add(_ check: Check, _ state: CheckState, _ detail: String) {
             if policy.enabledChecks.contains(check) { results.append(CheckResult(check: check, state: state, detail: detail)) }
         }
-        if let ipCountry = ipCountry {
-            add(.ipCountry, ipCountry == RSKStrings.a ? .rejected : .passed, "IP country: \(ipCountry)")
-        } else { add(.ipCountry, .unknown, "IP country unavailable or invalid") }
+        add(.ipCountry, .unknown, "IP country is unavailable without an IP geolocation source")
         if let region = region {
             add(.deviceRegion, region == RSKStrings.a ? .rejected : .passed, "Device region: \(region)")
         } else { add(.deviceRegion, .unknown, "Device region unavailable or invalid") }
@@ -79,14 +74,12 @@ public enum RegionSignalKit {
                 add(.deviceLanguage, code == RSKStrings.b ? .rejected : .passed, "Preferred language: \(language)")
             } else { add(.deviceLanguage, .unknown, "Preferred language unavailable or invalid") }
         } else { add(.deviceLanguage, .unknown, "Preferred language unavailable") }
-        if let region = region, let ipCountry = ipCountry {
-            add(.regionMatchesIP, region == ipCountry ? .passed : .rejected, "Device region \(region), IP country \(ipCountry)")
-        } else { add(.regionMatchesIP, .unknown, "Device region or IP country unavailable") }
+        add(.regionMatchesIP, .unknown, "IP country is unavailable without an IP geolocation source")
         if observations.tunnelInterfaceDetected {
-            add(.vpn, .rejected, "Tunnel-like network interface detected")
-        } else if let vpn = observations.network?.vpn {
-            add(.vpn, vpn ? .rejected : .passed, "Server VPN risk assessment: \(vpn)")
-        } else { add(.vpn, .unknown, "VPN status cannot be determined") }
+            add(.vpn, .rejected, "Tunnel-like network interface detected; this may not be a VPN")
+        } else {
+            add(.vpn, .unknown, "No tunnel-like interface detected; VPN absence cannot be verified")
+        }
         add(.simPresent, .unknown, "iOS does not expose a reliable general-purpose SIM presence check")
         add(.physicalSIM, .unknown, "iOS does not expose a reliable general-purpose physical SIM versus eSIM check")
         return Report(results: results, unknownIsRejected: policy.unknownIsRejected)
